@@ -8,7 +8,7 @@ const DEFAULT_FEEDS = [
   { name: 'Clarin', url: 'https://www.clarin.com/rss/lo-ultimo/'},
   { name: 'Ole', url: 'http://www.ole.com.ar/rss/ultimas-noticias/' },
   { name: 'Perfil', url: 'https://www.perfil.com/feed' },
-  { name: 'Infobae', url: 'https://www.infobae.com/rss/ultimas-noticias/' },
+  { name: 'IProfesional', url: 'https://www.iprofesional.com/rss/home' },
  
 ];
 
