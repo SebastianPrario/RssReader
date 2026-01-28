@@ -8,7 +8,8 @@ const DEFAULT_FEEDS = [
   { name: 'Clarin', url: 'https://www.clarin.com/rss/lo-ultimo/'},
   { name: 'Ole', url: 'http://www.ole.com.ar/rss/ultimas-noticias/' },
   { name: 'Perfil', url: 'https://www.perfil.com/feed' },
-  { name: 'IProfesional', url: 'https://www.iprofesional.com/rss/home' },
+  { name : 'Pagina 12', url: 'https://www.pagina12.com.ar/arc/outboundfeeds/rss/portada'},
+ 
 ];
 
 function App() {
@@ -33,9 +34,15 @@ function App() {
     const loadVoices = () => {
       const allVoices = synth.getVoices();
       // Filter ONLY for Spanish voices
-      setVoices(allVoices);
+      const filtered = allVoices.filter(v => v.lang.startsWith('es'));
+      setVoices(filtered);
       
-    
+      // Default to Argentine Spanish if available, otherwise general Spanish
+      if (!selectedVoiceName && filtered.length > 0) {
+        const argentineEs = filtered.find(v => v.lang.includes('AR'));
+        const generalEs = filtered.find(v => v.lang.startsWith('es'));
+        setSelectedVoiceName(argentineEs ? argentineEs.name : (generalEs ? generalEs.name : filtered[0].name));
+      }
     };
 
     loadVoices();
@@ -194,8 +201,8 @@ function App() {
     setLoading(true);
     setError(null);
     try {
-      const feedResults = [];
-      for (const feed of feeds) {
+      // Fetch all feeds in parallel instead of sequentially
+      const feedPromises = feeds.map(async (feed) => {
         try {
           const data = await fetchRSS(feed.url);
           // Attach source name to each article
@@ -203,12 +210,22 @@ function App() {
             ...item,
             source: feed.name
           }));
-          feedResults.push(itemsWithSource);
-          console.log(feedResults);
+          return { success: true, items: itemsWithSource, feedName: feed.name };
         } catch (err) {
-          console.error(`Error checking ${feed.name}:`, err);
+          console.error(`Error cargando ${feed.name}:`, err);
+          return { success: false, feedName: feed.name };
         }
-      }
+      });
+
+      // Wait for all feeds to complete (whether success or failure)
+      const results = await Promise.allSettled(feedPromises);
+      
+      // Collect successful feeds
+      const feedResults = results
+        .filter(result => result.status === 'fulfilled' && result.value.success)
+        .map(result => result.value.items);
+
+      console.log(`Feeds cargados exitosamente: ${feedResults.length} de ${feeds.length}`);
 
       // Interleave articles using Round-Robin
       const interleaved = [];
@@ -227,6 +244,11 @@ function App() {
       }
 
       setArticles(interleaved);
+      
+      // Show warning if some feeds failed
+      if (feedResults.length < feeds.length) {
+        console.warn(`Solo se pudieron cargar ${feedResults.length} de ${feeds.length} fuentes`);
+      }
     } catch (err) {
       setError('Error al cargar todas las noticias.');
     } finally {
