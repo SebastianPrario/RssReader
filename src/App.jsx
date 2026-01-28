@@ -32,8 +32,8 @@ function App() {
     const synth = window.speechSynthesis;
     const loadVoices = () => {
       const allVoices = synth.getVoices();
-      // Filter for Spanish and English
-      const filtered = allVoices.filter(v => v.lang.startsWith('es') || v.lang.startsWith('en'));
+      // Filter ONLY for Spanish voices
+      const filtered = allVoices.filter(v => v.lang.startsWith('es'));
       setVoices(filtered);
       
       // Default to Argentine Spanish if available, otherwise general Spanish
@@ -52,29 +52,44 @@ function App() {
 
   const playNewsBumper = () => {
     return new Promise((resolve) => {
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const playNote = (freq, startTime, duration) => {
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq, startTime);
-        gain.gain.setValueAtTime(0.1, startTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start(startTime);
-        osc.stop(startTime + duration);
-      };
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        // Resume context if suspended (iOS requirement)
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        
+        const playNote = (freq, startTime, duration) => {
+          try {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, startTime);
+            gain.gain.setValueAtTime(0.08, startTime); // Reduced volume for iOS
+            gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(startTime);
+            osc.stop(startTime + duration);
+          } catch (e) {
+            console.warn('Error playing note:', e);
+          }
+        };
 
-      const now = audioCtx.currentTime;
-      playNote(600, now, 0.1);
-      playNote(600, now + 0.15, 0.1);
-      playNote(800, now + 0.3, 0.5);
+        const now = audioCtx.currentTime;
+        playNote(600, now, 0.1);
+        playNote(600, now + 0.15, 0.1);
+        playNote(800, now + 0.3, 0.4); // Shorter duration
 
-      setTimeout(() => {
-        audioCtx.close();
-        resolve();
-      }, 800);
+        setTimeout(() => {
+          audioCtx.close().catch(() => {});
+          resolve();
+        }, 700); // Shorter timeout
+      } catch (error) {
+        console.warn('Bumper sound not available:', error);
+        resolve(); // Always resolve even on error
+      }
     });
   };
 
@@ -94,10 +109,22 @@ function App() {
     
     // Clean text
     const cleanSnippet = article.contentSnippet || article.content || '';
-    const textForTTS = cleanSnippet.replace(/<[^>]*>?/gm, '');
+    let textForTTS = cleanSnippet.replace(/<[^>]*>?/gm, '');
+    
+    // Remove common promotional phrases from RSS feeds
+    textForTTS = textForTTS
+      .replace(/leer más\.?$/i, '')
+      .replace(/seguir leyendo\.?$/i, '')
+      .replace(/ver más\.?$/i, '')
+      .replace(/continuar leyendo\.?$/i, '')
+      .replace(/\[…\]/g, '')
+      .replace(/\.\.\.\s*$/g, '')
+      .trim();
+    
     const cleanText = textForTTS.substring(0, 3000);
 
-    const utterance = new SpeechSynthesisUtterance(`${article.title}. ${cleanText}`);
+    const sourcePrefix = article.source ? `Noticia de ${article.source}. ` : '';
+    const utterance = new SpeechSynthesisUtterance(`${sourcePrefix}${article.title}. ${cleanText}`);
     utteranceRef.current = utterance;
     utterance.lang = 'es-ES';
 
@@ -113,8 +140,11 @@ function App() {
     const preferredVoice = voices.find(v => v.name === selectedVoiceName);
     if (preferredVoice) utterance.voice = preferredVoice;
 
-    // Play bumper sound before speaking
-    await playNewsBumper();
+    // Play bumper sound before speaking (non-blocking for iOS)
+    playNewsBumper().catch(() => {});
+    
+    // Small delay to let bumper start
+    await new Promise(resolve => setTimeout(resolve, 100));
 
     synth.speak(utterance);
     if (synth.paused) synth.resume();
@@ -156,16 +186,38 @@ function App() {
     setLoading(true);
     setError(null);
     try {
-      const allArticles = [];
+      const feedResults = [];
       for (const feed of feeds) {
         try {
           const data = await fetchRSS(feed.url);
-          allArticles.push(...data.items);
+          // Attach source name to each article
+          const itemsWithSource = data.items.map(item => ({
+            ...item,
+            source: feed.name
+          }));
+          feedResults.push(itemsWithSource);
         } catch (err) {
           console.error(`Error checking ${feed.name}:`, err);
         }
       }
-      setArticles(allArticles.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate)));
+
+      // Interleave articles using Round-Robin
+      const interleaved = [];
+      let hasMore = true;
+      let index = 0;
+
+      while (hasMore) {
+        hasMore = false;
+        for (const items of feedResults) {
+          if (index < items.length) {
+            interleaved.push(items[index]);
+            hasMore = true;
+          }
+        }
+        index++;
+      }
+
+      setArticles(interleaved);
     } catch (err) {
       setError('Error al cargar todas las noticias.');
     } finally {

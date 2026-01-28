@@ -25,6 +25,9 @@ const ArticleCard = ({ article, onPlay, isPlaying }) => {
           <Calendar size={14} />
           {formatDate(article.pubDate)}
         </span>
+        {article.source && (
+          <span className="source-badge">{article.source}</span>
+        )}
         <a href={article.link} target="_blank" rel="noopener noreferrer" className="link-icon">
           <ExternalLink size={18} />
         </a>
@@ -90,6 +93,16 @@ const ArticleCard = ({ article, onPlay, isPlaying }) => {
           display: flex;
           align-items: center;
           gap: 6px;
+        }
+        .source-badge {
+          font-size: 0.7rem;
+          font-weight: 700;
+          text-transform: uppercase;
+          background: var(--primary);
+          color: white;
+          padding: 2px 8px;
+          border-radius: 6px;
+          letter-spacing: 0.5px;
         }
         .link-icon {
           color: var(--text-muted);
