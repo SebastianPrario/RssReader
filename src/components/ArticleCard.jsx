@@ -1,8 +1,6 @@
-import React from 'react';
-import { ExternalLink, Calendar } from 'lucide-react';
-import AudioPlayer from './AudioPlayer';
+import { ExternalLink, Calendar, Volume2, VolumeX } from 'lucide-react';
 
-const ArticleCard = ({ article }) => {
+const ArticleCard = ({ article, onPlay, isPlaying }) => {
   const formatDate = (dateStr) => {
     try {
       const date = new Date(dateStr);
@@ -36,10 +34,39 @@ const ArticleCard = ({ article }) => {
       <p className="description">{textForTTS.substring(0, 150)}...</p>
       
       <div className="article-footer">
-        <AudioPlayer title={article.title} text={textForTTS} />
+        <button 
+          onClick={(e) => {
+            e.stopPropagation();
+            onPlay();
+          }}
+          className={`audio-btn glass ${isPlaying ? 'active' : ''}`}
+        >
+          {isPlaying ? <VolumeX size={20} /> : <Volume2 size={20} />}
+          <span>{isPlaying ? 'Detener' : 'Escuchar'}</span>
+        </button>
       </div>
 
       <style jsx>{`
+        .audio-btn {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 16px;
+          border: none;
+          color: white;
+          cursor: pointer;
+          font-family: inherit;
+          font-weight: 600;
+          transition: all 0.3s ease;
+          margin-top: 12px;
+        }
+        .audio-btn.active {
+          background: var(--primary);
+        }
+        .audio-btn:hover {
+          background: rgba(255, 255, 255, 0.15);
+          transform: scale(1.05);
+        }
         .article-card {
           padding: 24px;
           margin-bottom: 20px;

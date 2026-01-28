@@ -9,7 +9,6 @@ const DEFAULT_FEEDS = [
   { name: 'Ole', url: 'http://www.ole.com.ar/rss/ultimas-noticias/' },
   { name: 'Perfil', url: 'https://www.perfil.com/feed' },
   { name: 'IProfesional', url: 'https://www.iprofesional.com/rss/home' },
- 
 ];
 
 function App() {
@@ -20,12 +19,120 @@ function App() {
   const [error, setError] = useState(null);
   const [newFeedUrl, setNewFeedUrl] = useState('');
   const [showAddFeed, setShowAddFeed] = useState(false);
-  const [isListeningAll, setIsListeningAll] = useState(false);
+  
+  // Audio & Voice State
+  const [currentArticle, setCurrentArticle] = useState(null);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [voices, setVoices] = useState([]);
+  const [selectedVoiceName, setSelectedVoiceName] = useState('');
+  const utteranceRef = useRef(null);
   const isListeningRef = useRef(false);
 
   useEffect(() => {
-    isListeningRef.current = isListeningAll;
-  }, [isListeningAll]);
+    const synth = window.speechSynthesis;
+    const loadVoices = () => {
+      const allVoices = synth.getVoices();
+      // Filter for Spanish and English
+      const filtered = allVoices.filter(v => v.lang.startsWith('es') || v.lang.startsWith('en'));
+      setVoices(filtered);
+      
+      // Default to Argentine Spanish if available, otherwise general Spanish
+      if (!selectedVoiceName && filtered.length > 0) {
+        const argentineEs = filtered.find(v => v.lang.includes('AR'));
+        const generalEs = filtered.find(v => v.lang.startsWith('es'));
+        setSelectedVoiceName(argentineEs ? argentineEs.name : (generalEs ? generalEs.name : filtered[0].name));
+      }
+    };
+
+    loadVoices();
+    if (synth.onvoiceschanged !== undefined) {
+      synth.onvoiceschanged = loadVoices;
+    }
+  }, [selectedVoiceName]);
+
+  const playNewsBumper = () => {
+    return new Promise((resolve) => {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const playNote = (freq, startTime, duration) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, startTime);
+        gain.gain.setValueAtTime(0.1, startTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(startTime);
+        osc.stop(startTime + duration);
+      };
+
+      const now = audioCtx.currentTime;
+      playNote(600, now, 0.1);
+      playNote(600, now + 0.15, 0.1);
+      playNote(800, now + 0.3, 0.5);
+
+      setTimeout(() => {
+        audioCtx.close();
+        resolve();
+      }, 800);
+    });
+  };
+
+  // Handle global audio logic
+  const toggleGlobalSpeech = async (article) => {
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+
+    if (currentArticle?.link === article.link && isSpeaking) {
+      synth.cancel();
+      setIsSpeaking(false);
+      return;
+    }
+
+    synth.cancel();
+    setCurrentArticle(article);
+    
+    // Clean text
+    const cleanSnippet = article.contentSnippet || article.content || '';
+    const textForTTS = cleanSnippet.replace(/<[^>]*>?/gm, '');
+    const cleanText = textForTTS.substring(0, 3000);
+
+    const utterance = new SpeechSynthesisUtterance(`${article.title}. ${cleanText}`);
+    utteranceRef.current = utterance;
+    utterance.lang = 'es-ES';
+
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => {
+      setIsSpeaking(false);
+      if (isListeningRef.current) {
+        playNextArticle(article);
+      }
+    };
+    utterance.onerror = () => setIsSpeaking(false);
+
+    const preferredVoice = voices.find(v => v.name === selectedVoiceName);
+    if (preferredVoice) utterance.voice = preferredVoice;
+
+    // Play bumper sound before speaking
+    await playNewsBumper();
+
+    synth.speak(utterance);
+    if (synth.paused) synth.resume();
+  };
+
+  const playNextArticle = (current) => {
+    const currentIndex = articles.findIndex(a => a.link === current.link);
+    if (currentIndex !== -1 && currentIndex < articles.length - 1) {
+      // Small delay for natural transition
+      setTimeout(() => {
+        toggleGlobalSpeech(articles[currentIndex + 1]);
+      }, 1000);
+    } else {
+      isListeningRef.current = false;
+      setIsListeningAll(false);
+      setCurrentArticle(null);
+    }
+  };
 
   useEffect(() => {
     if (activeFeedUrl) {
@@ -38,8 +145,9 @@ function App() {
     }
     
     // Cancelar escucha global si cambiamos a un feed específico
-    if (activeFeedUrl && isListeningAll) {
+    if (activeFeedUrl && isListeningRef.current) {
       window.speechSynthesis.cancel();
+      isListeningRef.current = false;
       setIsListeningAll(false);
     }
   }, [activeFeedUrl]);
@@ -108,86 +216,20 @@ function App() {
     }
   };
 
-  const playNewsBumper = () => {
-    return new Promise((resolve) => {
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const playNote = (freq, startTime, duration) => {
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq, startTime);
-        gain.gain.setValueAtTime(0.1, startTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start(startTime);
-        osc.stop(startTime + duration);
-      };
+  const [isListeningAll, setIsListeningAll] = useState(false);
 
-      const now = audioCtx.currentTime;
-      playNote(600, now, 0.1);
-      playNote(600, now + 0.15, 0.1);
-      playNote(800, now + 0.3, 0.5);
-
-      setTimeout(() => {
-        audioCtx.close();
-        resolve();
-      }, 800);
-    });
-  };
-
-  const handleListenAll = () => {
+  const toggleListenAll = () => {
     if (isListeningAll) {
       window.speechSynthesis.cancel();
+      isListeningRef.current = false;
       setIsListeningAll(false);
-      return;
+      setCurrentArticle(null);
+      setIsSpeaking(false);
+    } else if (articles.length > 0) {
+      isListeningRef.current = true;
+      setIsListeningAll(true);
+      toggleGlobalSpeech(articles[0]);
     }
-
-    if (articles.length === 0) return;
-
-    setIsListeningAll(true);
-    isListeningRef.current = true;
-    
-    let currentIndex = 0;
-    const speakNext = async () => {
-      if (currentIndex >= articles.length || !window.speechSynthesis || !isListeningRef.current) {
-        setIsListeningAll(false);
-        return;
-      }
-
-      // Tocar sonido de noticiero antes de cada artículo
-      await playNewsBumper();
-      
-      if (!isListeningRef.current) return;
-
-      const article = articles[currentIndex];
-      const utterance = new SpeechSynthesisUtterance(`${article.title}. ${article.contentSnippet || ''}`);
-          const voices = window.speechSynthesis.getVoices();
-      // Priorizar voces de alta calidad (Google o Naturales) y en español
-      const preferredVoice = 
-        voices.find(v => v.name === 'Google español') ||
-        voices.find(v => v.name.includes('Google') && v.lang.startsWith('es')) ||
-        voices.find(v => v.lang.includes('es-ES')) ||
-        voices.find(v => v.lang.includes('es')) ||
-        voices.find(v => v.lang.includes('en'));
-        
-      if (preferredVoice) utterance.voice = preferredVoice;
-
-      utterance.onend = () => {
-        if (isListeningRef.current) {
-          currentIndex++;
-          speakNext();
-        }
-      };
-
-      utterance.onerror = () => {
-        setIsListeningAll(false);
-      };
-
-      window.speechSynthesis.speak(utterance);
-    };
-
-    speakNext();
   };
 
   return (
@@ -197,12 +239,25 @@ function App() {
         <div className="header-content">
           <div className="logo">
             <Newspaper className="logo-icon" size={28} />
-            <h1>RSS Reader</h1>
+            <h1>NotiVoz</h1>
           </div>
           <div className="header-actions">
+            {voices.length > 0 && (
+              <select 
+                className="voice-select glass"
+                value={selectedVoiceName}
+                onChange={(e) => setSelectedVoiceName(e.target.value)}
+              >
+                {voices.map(v => (
+                  <option key={v.name} value={v.name}>
+                    {v.name} ({v.lang})
+                  </option>
+                ))}
+              </select>
+            )}
             <button 
               className={`listen-all-btn ${isListeningAll ? 'listening' : ''}`}
-              onClick={handleListenAll}
+              onClick={toggleListenAll}
               title={isListeningAll ? "Detener reproducción" : "Escuchar todas las noticias"}
             >
               {isListeningAll ? <VolumeX size={24} /> : <Volume2 size={24} />}
@@ -294,7 +349,12 @@ function App() {
           )}
 
           {!loading && !error && articles.map((article, idx) => (
-            <ArticleCard key={idx} article={article} />
+            <ArticleCard 
+              key={idx} 
+              article={article} 
+              onPlay={() => toggleGlobalSpeech(article)}
+              isPlaying={currentArticle?.link === article.link && isSpeaking}
+            />
           ))}
 
           {!loading && !error && articles.length === 0 && (
@@ -376,6 +436,21 @@ function App() {
           background: #ff4444;
           border-color: #ff4444;
           animation: pulse 2s infinite;
+        }
+        .voice-select {
+          background: rgba(0,0,0,0.2);
+          border: 1px solid var(--glass-border);
+          color: white;
+          padding: 8px 12px;
+          border-radius: 12px;
+          font-family: inherit;
+          max-width: 150px;
+          font-size: 0.8rem;
+          outline: none;
+        }
+        .voice-select option {
+          background: var(--bg-dark);
+          color: white;
         }
         @keyframes pulse {
           0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.4); }

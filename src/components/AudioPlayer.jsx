@@ -1,41 +1,68 @@
-import React, { useState, useEffect } from 'react';
-import { Volume2, VolumeX, Play, Pause } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Volume2, VolumeX, Loader2 } from 'lucide-react';
 
 const AudioPlayer = ({ text, title }) => {
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [synth, setSynth] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const utteranceRef = useRef(null);
 
   useEffect(() => {
-    setSynth(window.speechSynthesis);
     return () => {
-      if (synth) synth.cancel();
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
     };
   }, []);
 
   const toggleSpeak = () => {
+    const synth = window.speechSynthesis;
     if (!synth) return;
 
     if (isSpeaking) {
       synth.cancel();
       setIsSpeaking(false);
     } else {
-      const utterance = new SpeechSynthesisUtterance(`${title}. ${text}`);
-      utterance.onend = () => setIsSpeaking(false);
-      utterance.onerror = () => setIsSpeaking(false);
+      // Clear any pending speech to avoid queue locks especially on iOS
+      synth.cancel();
+      setIsLoading(true);
+
+      const cleanText = text.substring(0, 3000); // Limit length for stability
+      const utterance = new SpeechSynthesisUtterance(`${title}. ${cleanText}`);
+      utteranceRef.current = utterance;
+
+      utterance.onstart = () => {
+        setIsLoading(false);
+        setIsSpeaking(true);
+      };
+
+      utterance.onend = () => {
+        setIsSpeaking(false);
+        setIsLoading(false);
+      };
+
+      utterance.onerror = (event) => {
+        console.error('SpeechSynthesis error', event);
+        setIsSpeaking(false);
+        setIsLoading(false);
+      };
+
+      // Set voice and language
+      utterance.lang = 'es-ES'; // Default to Spanish as requested by user context
       
-      // Try to find a good voice
       const voices = synth.getVoices();
-      const preferredVoice = 
-        voices.find(v => v.name === 'Google español') ||
-        voices.find(v => v.name.includes('Google') && v.lang.startsWith('es')) ||
-        voices.find(v => v.lang.includes('es-ES')) ||
-        voices.find(v => v.lang.includes('es')) ||
-        voices.find(v => v.lang.includes('en'));
-        
+      // Try to find a Spanish voice, otherwise English, otherwise default
+      const preferredVoice = voices.find(v => v.lang.startsWith('es')) || 
+                             voices.find(v => v.lang.startsWith('en'));
+      
       if (preferredVoice) utterance.voice = preferredVoice;
 
+      // Crucial for iOS: The actual speak call must be immediate
       synth.speak(utterance);
-      setIsSpeaking(true);
+      
+      // On some versions of iOS, if the queue is empty, we might need a small jumpstart
+      if (synth.paused) {
+        synth.resume();
+      }
     }
   };
 
@@ -45,11 +72,18 @@ const AudioPlayer = ({ text, title }) => {
         e.stopPropagation();
         toggleSpeak();
       }}
-      className="audio-btn glass"
+      className={`audio-btn glass ${isSpeaking ? 'active' : ''}`}
+      disabled={isLoading}
       title={isSpeaking ? "Detener" : "Escuchar"}
     >
-      {isSpeaking ? <VolumeX size={20} /> : <Volume2 size={20} />}
-      <span>{isSpeaking ? 'Detener' : 'Escuchar'}</span>
+      {isLoading ? (
+        <Loader2 size={20} className="animate-spin" />
+      ) : isSpeaking ? (
+        <VolumeX size={20} />
+      ) : (
+        <Volume2 size={20} />
+      )}
+      <span>{isLoading ? 'Preparando...' : isSpeaking ? 'Detener' : 'Escuchar'}</span>
 
       <style jsx>{`
         .audio-btn {
