@@ -33,15 +33,9 @@ function App() {
     const loadVoices = () => {
       const allVoices = synth.getVoices();
       // Filter ONLY for Spanish voices
-      const filtered = allVoices.filter(v => v.lang.startsWith('es'));
-      setVoices(filtered);
+      setVoices(allVoices);
       
-      // Default to Argentine Spanish if available, otherwise general Spanish
-      if (!selectedVoiceName && filtered.length > 0) {
-        const argentineEs = filtered.find(v => v.lang.includes('AR'));
-        const generalEs = filtered.find(v => v.lang.startsWith('es'));
-        setSelectedVoiceName(argentineEs ? argentineEs.name : (generalEs ? generalEs.name : filtered[0].name));
-      }
+    
     };
 
     loadVoices();
@@ -118,7 +112,21 @@ function App() {
       .replace(/ver más\.?$/i, '')
       .replace(/continuar leyendo\.?$/i, '')
       .replace(/\[…\]/g, '')
+      .replace(/\.\.\.\.+/g, '...') // Normalize multiple dots
       .replace(/\.\.\.\s*$/g, '')
+      
+    // Remove URLs and web references
+    textForTTS = textForTTS
+      .replace(/https?:\/\/[^\s]+/gi, '') // Remove URLs starting with http/https
+      .replace(/www\.[^\s]+/gi, '') // Remove URLs starting with www
+      .replace(/\b[a-z0-9.-]+\.(com|net|org|ar|es|info|io|co)\b/gi, '') // Remove domain names
+      .replace(/\b(ver en|visitar|página|sitio web|web|website)\b/gi, '') // Remove web references
+      
+    // Remove special characters and clean up
+    textForTTS = textForTTS
+      .replace(/[©®™]/g, '') // Remove copyright symbols
+      .replace(/&[a-z]+;/gi, ' ') // Remove HTML entities
+      .replace(/\s{2,}/g, ' ') // Remove multiple spaces
       .trim();
     
     const cleanText = textForTTS.substring(0, 3000);
@@ -196,6 +204,7 @@ function App() {
             source: feed.name
           }));
           feedResults.push(itemsWithSource);
+          console.log(feedResults);
         } catch (err) {
           console.error(`Error checking ${feed.name}:`, err);
         }
