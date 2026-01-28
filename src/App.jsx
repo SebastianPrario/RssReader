@@ -33,15 +33,19 @@ function App() {
     const synth = window.speechSynthesis;
     const loadVoices = () => {
       const allVoices = synth.getVoices();
-      // Filter ONLY for Spanish voices
-      const filtered = allVoices.filter(v => v.lang.startsWith('es'));
+      // Filter for Spanish voices AND Siri voices
+      const filtered = allVoices.filter(v => 
+        v.lang.startsWith('es') || // Spanish voices
+        v.name.toLowerCase().includes('siri') // Siri voices
+      );
       setVoices(filtered);
       
-      // Default to Argentine Spanish if available, otherwise general Spanish
+      // Default to Argentine Spanish if available, otherwise general Spanish, otherwise Siri
       if (!selectedVoiceName && filtered.length > 0) {
         const argentineEs = filtered.find(v => v.lang.includes('AR'));
         const generalEs = filtered.find(v => v.lang.startsWith('es'));
-        setSelectedVoiceName(argentineEs ? argentineEs.name : (generalEs ? generalEs.name : filtered[0].name));
+        const siriVoice = filtered.find(v => v.name.toLowerCase().includes('siri'));
+        setSelectedVoiceName(argentineEs ? argentineEs.name : (generalEs ? generalEs.name : (siriVoice ? siriVoice.name : filtered[0].name)));
       }
     };
 
